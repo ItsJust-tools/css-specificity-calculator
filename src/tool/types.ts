@@ -1,39 +1,60 @@
-export type DigitCase = 'lower' | 'upper';
+/** CSS specificity tuple: a = IDs, b = classes/attributes/pseudo-classes, c = elements/pseudo-elements. */
+export interface SpecificityTuple {
+  a: number;
+  b: number;
+  c: number;
+}
 
-export type BitGrouping = 'none' | 'nibble' | 'byte';
+/** Result of scoring one selector string; malformed selectors carry an error but never throw. */
+export interface SelectorScore {
+  /** The selector exactly as entered. */
+  raw: string;
+  error: string | null;
+  tuple: SpecificityTuple;
+  /** Single comparable number: a * 10000 + b * 100 + c. */
+  total: number;
+  /** True when the input contained an explicit `!important` flag. */
+  important: boolean;
+  breakdown: {
+    ids: string[];
+    classes: string[];
+    elements: string[];
+  };
+}
+
+export type EntryKind = 'selector' | 'inline';
+
+/** A cascade candidate: either a scored selector or the inline style attribute. */
+export interface ScoredEntry {
+  kind: EntryKind;
+  label: string;
+  important: boolean;
+  score: SelectorScore;
+}
 
 export interface ToolState {
-  /** The number as typed by the user, interpreted in `inputBase`. */
-  input: string;
-  /** Base used to interpret `input` (2-36). */
-  inputBase: number;
-  /** Which case to use for digit letters in outputs. */
-  digitCase: DigitCase;
-  /** Grouping applied to binary output. */
-  grouping: BitGrouping;
-  /** Whether to show the signed two's complement representation. */
-  showTwosComplement: boolean;
-  /** Assumed bit length used for two's complement (multiple of 4). */
-  bitLength: number;
+  /** Comma-separated selector list; each selector is scored individually. */
+  selectorsText: string;
+  /** Whether an inline `style="…"` attribute participates in the cascade. */
+  inlineStyleActive: boolean;
+  /** Whether the inline style carries `!important` declarations. */
+  inlineImportant: boolean;
+  /** Side-by-side comparison mode for exactly two selectors. */
+  compareMode: boolean;
+  /** First selector in comparison mode. */
+  compareA: string;
+  /** Second selector in comparison mode. */
+  compareB: string;
 }
-
-export const MIN_BASE = 2;
-export const MAX_BASE = 36;
 
 export const DEFAULT_STATE: ToolState = {
-  input: '255',
-  inputBase: 10,
-  digitCase: 'lower',
-  grouping: 'nibble',
-  showTwosComplement: true,
-  bitLength: 32,
+  selectorsText:
+    '#main .card:hover, ul li a.nav-link:focus-visible, header[role="banner"] h1::first-line, section :is(#a .b, .c .d .e), .x > * + .y::before!important',
+  inlineStyleActive: false,
+  inlineImportant: false,
+  compareMode: false,
+  compareA: '#header .nav-item.active',
+  compareB: 'div#header ul li a.nav-item:hover::after',
 };
 
-export interface BaseConversion {
-  /** Canonical lowercase conversion (no grouping separators). */
-  value: string;
-  /** Formatted value: case applied plus bit grouping for binary. */
-  formatted: string;
-  /** True when an error is reported for this base row. */
-  error: string | null;
-}
+export const INLINE_STYLE_LABEL = 'style="…" (inline)';

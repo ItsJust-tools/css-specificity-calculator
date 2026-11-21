@@ -7,7 +7,6 @@ import type { ToolState } from '../types';
 
 interface ToolCanvasProps {
   state: ToolState;
-  fontSize: number;
   readOnly?: boolean;
   canvasRef?: React.RefObject<HTMLDivElement | null>;
   onStateChange?: (updater: (prev: ToolState) => ToolState) => void;
@@ -16,7 +15,6 @@ interface ToolCanvasProps {
 
 export function ToolCanvas({
   state,
-  fontSize,
   readOnly = false,
   canvasRef,
   onStateChange,
@@ -32,10 +30,9 @@ export function ToolCanvas({
   return (
     <div
       ref={canvasRef}
-      className="converter-canvas"
+      className="tool-canvas"
       role="application"
-      aria-label="Base converter canvas"
-      style={{ fontSize: `${fontSize}px` }}
+      aria-label="CSS specificity calculator canvas"
     >
       {onClear ? <Toolbar state={state} onChange={handleChange} onClear={onClear} /> : null}
       <Canvas state={state} onChange={handleChange} />

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { MAX_BASE, MIN_BASE, type BitGrouping, type DigitCase, type ToolState } from '../types';
+import type { ToolState } from '../types';
 
 interface SidebarProps {
   state: ToolState;
@@ -12,72 +12,64 @@ export const Sidebar: React.FC<SidebarProps> = ({ state, onChange }) => {
   const update = (patch: Partial<ToolState>) => onChange({ ...state, ...patch });
 
   return (
-    <div className="p-4 space-y-6 text-sm overflow-y-auto h-full" data-testid="base-converter-sidebar">
+    <div className="p-4 space-y-6 text-sm overflow-y-auto h-full" data-testid="specificity-sidebar">
       <div>
-        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Digit case</h3>
-        <div className="flex gap-2">
-          {(['lower', 'upper'] as DigitCase[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => update({ digitCase: mode })}
-              aria-pressed={state.digitCase === mode}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                state.digitCase === mode
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-              }`}
-            >
-              {mode === 'lower' ? 'lowercase (a-f)' : 'UPPERCASE (A-F)'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Binary grouping</h3>
-        <select
-          aria-label="Binary grouping"
-          value={state.grouping}
-          onChange={(e) => update({ grouping: e.target.value as BitGrouping })}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
-          <option value="none">No grouping</option>
-          <option value="nibble">Nibbles (4 bits)</option>
-          <option value="byte">Bytes (8 bits)</option>
-        </select>
-      </div>
-
-      <div>
-        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Two's complement</h3>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Show signed representation</span>
+        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Inline style attribute</h3>
+        <label className="flex items-center justify-between gap-2 text-xs">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            Inline <code>style="…"</code> participates
+          </span>
           <input
             type="checkbox"
-            checked={state.showTwosComplement}
-            onChange={(e) => update({ showTwosComplement: e.target.checked })}
-            className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            checked={state.inlineStyleActive}
+            onChange={(e) => update({ inlineStyleActive: e.target.checked })}
           />
         </label>
-        <label className="mt-2 block text-xs font-medium text-gray-700 dark:text-gray-300">
-          Bit length
+        <label className="mt-2 flex items-center justify-between gap-2 text-xs">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            Inline has <code>!important</code>
+          </span>
           <input
-            type="number"
-            min={1}
-            max={512}
-            step={1}
-            value={state.bitLength}
-            onChange={(e) => {
-              const n = Math.trunc(Number(e.target.value));
-              update({ bitLength: Number.isFinite(n) && n >= 1 ? Math.min(n, 512) : 1 });
-            }}
-            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+            type="checkbox"
+            checked={state.inlineImportant}
+            onChange={(e) => update({ inlineImportant: e.target.checked })}
+            disabled={!state.inlineStyleActive}
           />
         </label>
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Inline styles score as (1, 0, 0) and beat any normal author rule, but
+          <code className="mx-1">!important</code> author declarations beat non-important inline
+          declarations; important inline beats important stylesheet rules.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Comparison mode</h3>
+        <label className="flex items-center justify-between gap-2 text-xs">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            Two selectors side by side
+          </span>
+          <input
+            type="checkbox"
+            checked={state.compareMode}
+            onChange={(e) => update({ compareMode: e.target.checked })}
+          />
+        </label>
+      </div>
+
+      <div>
+        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">How scoring works</h3>
+        <ul className="list-disc space-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400">
+          <li>(a) IDs — <code>#id</code></li>
+          <li>(b) Classes, attributes, pseudo-classes — <code>.cls</code>, <code>[attr]</code>, <code>:hover</code></li>
+          <li>(c) Elements and pseudo-elements — <code>div</code>, <code>::before</code></li>
+          <li>Universal <code>*</code>, combinators and <code>:where()</code> count zero.</li>
+          <li><code>:is()</code>, <code>:not()</code> and <code>:has()</code> take the specificity of their most specific argument.</li>
+        </ul>
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Bases {MIN_BASE}–{MAX_BASE} are supported. Digits above 9 use letters a–z.
+        Malformed selectors are flagged inline rather than breaking the tool.
       </p>
     </div>
   );

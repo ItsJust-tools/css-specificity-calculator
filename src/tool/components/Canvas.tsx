@@ -1,145 +1,268 @@
 'use client';
 
-import React from 'react';
+import { useCallback, useMemo } from 'react';
 import {
-  convertToAllBases,
-  parseIntegerInBase,
-  twosComplementInfo,
-  requiredBitLength,
+  compareSelectors,
+  formatTuple,
+  scoreSelectorList,
+  tieBreakerNote,
 } from '../tool-definition';
-import type { ToolState } from '../types';
+import type { ScoredEntry, ToolState } from '../types';
 
 interface CanvasProps {
   state: ToolState;
   onChange: (state: ToolState) => void;
 }
 
-const BASE_LABELS: { base: number; label: string }[] = [
-  { base: 2, label: 'BIN (2)' },
-  { base: 8, label: 'OCT (8)' },
-  { base: 10, label: 'DEC (10)' },
-  { base: 16, label: 'HEX (16)' },
-];
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = React.useState(false);
-  const handleCopy = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable; ignore
-    }
-  }, [value]);
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="copy-btn text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
-      aria-label="Copy converted value"
-    >
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
-}
+const COL_A = 'IDs (a)';
+const COL_B = 'Classes / attrs / pseudo-classes (b)';
+const COL_C = 'Elements / pseudo-elements (c)';
 
 export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
-  const conversions = React.useMemo(() => convertToAllBases(state), [state]);
-  const rows = [
-    ...BASE_LABELS.map(({ base, label }) => ({ base, label, conversion: conversions[base - 2] })),
-    ...Array.from({ length: 30 }, (_, i) => {
-      const base = i + 7;
-      if (base === 8 || base === 10 || base === 16) return null;
-      return { base, label: `Base ${base}`, conversion: conversions[base - 2] };
-    }).filter((r): r is { base: number; label: string; conversion: (typeof conversions)[number] } => r !== null),
-  ];
+  const entries = useMemo(
+    () =>
+      scoreSelectorList(
+        state.selectorsText,
+        state.inlineStyleActive,
+        state.inlineImportant
+      ),
+    [state.selectorsText, state.inlineStyleActive, state.inlineImportant]
+  );
+  const winner = entries[0] ?? null;
 
-  const inputValue = parseIntegerInBase(state.input, state.inputBase);
-  const twos = state.showTwosComplement ? twosComplementInfo(state) : null;
+  const comparison = useMemo(
+    () => (state.compareMode ? compareSelectors(state.compareA, state.compareB) : null),
+    [state.compareMode, state.compareA, state.compareB]
+  );
 
   const update = (patch: Partial<ToolState>) => onChange({ ...state, ...patch });
 
+  const copy = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        /* clipboard unavailable */
+      }
+    },
+    []
+  );
+
+  const copyText = useCallback(
+    () =>
+      copy(
+        entries
+          .map(
+            (e) =>
+              `${e.important ? '!important ' : ''}${e.label} → ${formatTuple(e.score.tuple)}`
+          )
+          .join('\n')
+      ),
+    [copy, entries]
+  );
+
+  const copyMarkdown = useCallback(
+    () =>
+      copy(
+        [
+          '| Specificity | Selector | a | b | c |',
+          '| --- | --- | --- | --- | --- |',
+          ...entries.map(
+            (e) =>
+              `| \`${e.important ? '!important ' : ''}${formatTuple(e.score.tuple)}\` | \`${e.label.replace(/\|/g, '\\|')}\` | ${e.score.tuple.a} | ${e.score.tuple.b} | ${e.score.tuple.c} |`
+          ),
+        ].join('\n')
+      ),
+    [copy, entries]
+  );
+
   return (
-    <div className="p-4 space-y-4 overflow-y-auto h-full" data-testid="base-converter-canvas">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+    <div
+      className="p-4 space-y-4 overflow-y-auto h-full"
+      data-testid="specificity-canvas"
+    >
+      <div className="flex flex-col gap-2">
         <label
-          htmlFor="base-input"
+          htmlFor="selectors-input"
           className="text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300"
         >
-          Input (base {state.inputBase})
+          Selectors (comma-separated, scored individually)
         </label>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <textarea
+          id="selectors-input"
+          value={state.selectorsText}
+          onChange={(e) => update({ selectorsText: e.target.value })}
+          placeholder="#main .card:hover, ul li a.nav-link:focus-visible, …"
+          rows={4}
+          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 font-mono text-sm text-gray-900 dark:text-gray-100"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
           <input
-            id="base-input"
-            type="text"
-            value={state.input}
-            onChange={(e) => update({ input: e.target.value })}
-            placeholder={`Enter a base-${state.inputBase} number`}
-            className="w-full sm:w-72 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100"
-            aria-describedby="base-input-error"
+            type="checkbox"
+            checked={state.inlineStyleActive}
+            onChange={(e) => update({ inlineStyleActive: e.target.checked })}
           />
-          <select
-            aria-label="Input base"
-            value={state.inputBase}
-            onChange={(e) => update({ inputBase: Number(e.target.value) })}
-            className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100"
-          >
-            {Array.from({ length: 35 }, (_, i) => i + 2).map((b) => (
-              <option key={b} value={b}>
-                Base {b}
-              </option>
-            ))}
-          </select>
-        </div>
+          Inline <code>style="…"</code> participates
+        </label>
+        <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={state.inlineImportant}
+            onChange={(e) => update({ inlineImportant: e.target.checked })}
+            disabled={!state.inlineStyleActive}
+          />
+          Inline has <code>!important</code>
+        </label>
+        <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={state.compareMode}
+            onChange={(e) => update({ compareMode: e.target.checked })}
+          />
+          Compare mode
+        </label>
       </div>
 
-      <div className="grid gap-2">
-        {rows.map((row) => {
-          const { base, label, conversion } = row;
-          if (!conversion) return null;
-          return (
-          <div
-            key={base}
-            className="flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 px-3 py-2"
-            data-testid={`base-row-${base}`}
-          >
-            <span className="w-20 shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">{label}</span>
-            {conversion.error ? (
-              <span role="alert" className="flex-1 text-xs text-red-600 dark:text-red-400">
-                {conversion.error}
-              </span>
-            ) : (
-              <code className="flex-1 break-all font-mono text-sm text-gray-900 dark:text-gray-100">
-                {conversion.formatted || '—'}
-              </code>
+      {/* Ranking table */}
+      <div className="rounded-md border border-gray-200 dark:border-gray-800 overflow-x-auto">
+        <table className="w-full text-sm" data-testid="ranking-table">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+              <th className="px-3 py-2">#</th>
+              <th className="px-3 py-2">Selector</th>
+              <th className="px-3 py-2">{COL_A}</th>
+              <th className="px-3 py-2">{COL_B}</th>
+              <th className="px-3 py-2">{COL_C}</th>
+              <th className="px-3 py-2">Score</th>
+              <th className="px-3 py-2">Why it wins</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.length === 0 && (
+              <tr>
+                <td className="px-3 py-3 text-gray-500" colSpan={7}>
+                  Enter one or more selectors above to compute specificity.
+                </td>
+              </tr>
             )}
-            {!conversion.error && conversion.formatted ? <CopyButton value={conversion.formatted} /> : null}
-          </div>
-          );
-        })}
+            {entries.map((entry: ScoredEntry, index) => (
+              <tr
+                key={`${entry.label}-${index}`}
+                className={`border-t border-gray-100 dark:border-gray-800 ${
+                  winner === entry ? 'bg-emerald-50 dark:bg-emerald-900/30 font-medium' : ''
+                }`}
+              >
+                <td className="px-3 py-2 text-gray-500">{index + 1}</td>
+                <td className="px-3 py-2 font-mono break-all max-w-xs">
+                  {entry.important && <span className="mr-1 text-red-600 dark:text-red-400">!important</span>}
+                  {entry.label}
+                  {entry.score.error && (
+                    <span role="alert" className="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                      ⚠ {entry.score.error}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2">{entry.score.tuple.a}</td>
+                <td className="px-3 py-2">{entry.score.tuple.b}</td>
+                <td className="px-3 py-2">{entry.score.tuple.c}</td>
+                <td className="px-3 py-2 font-mono">{formatTuple(entry.score.tuple)}</td>
+                <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
+                  {winner === entry
+                    ? entry.important
+                      ? '!important flag'
+                      : 'Highest specificity'
+                    : entry.important
+                      ? '!important, but outranked'
+                      : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {state.showTwosComplement && (
-        <div className="rounded-md border border-gray-200 dark:border-gray-800 px-3 py-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              Two's complement ({state.bitLength} bit)
-            </span>
-            {twos ? <CopyButton value={twos.replace(/ /g, '')} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={copyText}
+          className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+        >
+          Copy as text
+        </button>
+        <button
+          type="button"
+          onClick={copyMarkdown}
+          className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+        >
+          Copy as markdown table
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 dark:text-gray-400">{tieBreakerNote()}</p>
+
+      {comparison && (
+        <div className="space-y-2" data-testid="compare-section">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Side-by-side comparison
+          </h3>
+          <input
+            aria-label="Comparison selector A"
+            value={state.compareA}
+            onChange={(e) => update({ compareA: e.target.value })}
+            placeholder="Selector A"
+            className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 font-mono text-sm text-gray-900 dark:text-gray-100"
+          />
+          <input
+            aria-label="Comparison selector B"
+            value={state.compareB}
+            onChange={(e) => update({ compareB: e.target.value })}
+            placeholder="Selector B"
+            className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 font-mono text-sm text-gray-900 dark:text-gray-100"
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(['a', 'b'] as const).map((which) => {
+              const isWinner = comparison.winner === which;
+              const score = which === 'a' ? comparison.scoreA : comparison.scoreB;
+              return (
+                <div
+                  key={which}
+                  className={`rounded-md border px-3 py-2 ${
+                    isWinner
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30'
+                      : 'border-gray-200 dark:border-gray-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase text-gray-500">
+                      Selector {which.toUpperCase()}
+                    </span>
+                    {isWinner && (
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                        ★ Winner
+                      </span>
+                    )}
+                    {comparison.winner === 'tie' && (
+                      <span className="text-xs text-gray-500">Tie — source order decides</span>
+                    )}
+                  </div>
+                  <code className="block break-all font-mono text-xs text-gray-900 dark:text-gray-100">
+                    {score.raw || '(empty)'}
+                  </code>
+                  <div className="mt-1 font-mono text-sm">
+                    {formatTuple(score.tuple)} — total {score.total.toLocaleString()}
+                  </div>
+                  {score.error && (
+                    <p role="alert" className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      ⚠ {score.error}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {twos ? (
-            <code className="mt-1 block break-all font-mono text-sm text-gray-900 dark:text-gray-100">{twos}</code>
-          ) : (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Enter a valid integer (no fractional part) to see the two's complement representation.
-            </p>
-          )}
-          {inputValue !== null && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Minimum unsigned bit length for magnitude: {requiredBitLength(inputValue)}
-            </p>
-          )}
         </div>
       )}
     </div>

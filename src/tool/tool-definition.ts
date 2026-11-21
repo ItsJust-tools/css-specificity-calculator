@@ -1,231 +1,438 @@
 import type { Tool, DeserializeResult } from '@itsjust/core';
 import toolConfig from './tool.config';
 import {
+  INLINE_STYLE_LABEL,
   DEFAULT_STATE,
-  MAX_BASE,
-  MIN_BASE,
-  type BaseConversion,
-  type BitGrouping,
-  type DigitCase,
+  type ScoredEntry,
+  type SelectorScore,
+  type SpecificityTuple,
   type ToolState,
 } from './types';
 
-const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
+// ---------------------------------------------------------------
+// Selector parsing
+// ---------------------------------------------------------------
 
-function digitChar(value: number): string {
-  return DIGITS.charAt(value);
+type SimpleKind = 'id' | 'class' | 'attribute' | 'pseudo-class' | 'element' | 'pseudo-element';
+
+interface ParsedSimple {
+  kind: SimpleKind;
+  text: string;
 }
 
-function digitValue(char: string): number {
-  const lower = char.toLowerCase();
-  const index = DIGITS.indexOf(lower);
-  if (index === -1) return -1;
-  return index;
+type Token = ParsedSimple | { kind: 'combinator' };
+
+/**
+ * Tokenize a single complex selector (no commas) into simple selectors and combinator
+ * separators. Whitespace and combinator characters inside (), [] and functional
+ * pseudo-classes are preserved as part of the compound. Tolerant: malformed input
+ * yields `valid: false` but never throws.
+ */
+function tokenize(selector: string): { items: Token[]; valid: boolean } {
+  const items: Token[] = [];
+  let valid = true;
+  const trimmed = selector.trim();
+  if (!trimmed) return { items, valid: false };
+
+  let chunk = '';
+  let depth = 0;
+  let pendingSpace = false;
+  let pendingComb = false;
+  let sawSimple = false;
+
+  const flush = () => {
+    const c = chunk.trim();
+    chunk = '';
+    pendingSpace = false;
+    if (!c) return;
+    if (c === '*') {
+      // Universal selector contributes zero specificity.
+      sawSimple = true;
+      return;
+    }
+    if (c === ',' || /^[,]+$/.test(c)) {
+      valid = false;
+      return;
+    }
+    const compound = parseCompound(c);
+    if (compound === null) {
+      valid = false;
+      return;
+    }
+    for (const s of compound) items.push(s);
+    if (compound.length === 0) {
+      valid = false;
+    } else {
+      sawSimple = true;
+    }
+  };
+
+  let i = 0;
+  while (i < trimmed.length) {
+    const ch = trimmed[i] ?? '';
+    if (ch === '(' || ch === '[') depth++;
+    if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    const atTop = depth === 0;
+    if (atTop && (ch === '>' || ch === '+' || ch === '~')) {
+      flush();
+      pendingComb = true;
+      pendingSpace = false;
+      i++;
+      continue;
+    }
+    if (atTop && /\s/.test(ch)) {
+      if (chunk.trim()) {
+        flush();
+        pendingSpace = true;
+      }
+      i++;
+      continue;
+    }
+    if (pendingComb) {
+      items.push({ kind: 'combinator' });
+      pendingComb = false;
+    } else if (pendingSpace) {
+      items.push({ kind: 'combinator' });
+      pendingSpace = false;
+    }
+    chunk += ch;
+    i++;
+  }
+  flush();
+  if (!sawSimple) valid = false;
+  return { items, valid };
 }
 
 /**
- * Parse `input` in `base` into a decimal fraction value.
- * Supports an optional leading sign and a single fractional part.
- * Returns null when input is empty or contains invalid digits.
+ * Parse a compound selector chunk (e.g. `#a.b:hover::before[hidden]`) into simples.
+ * Returns null only when the chunk is fundamentally malformed.
  */
-export function parseInBase(input: string, base: number): number | null {
-  if (!Number.isInteger(base) || base < MIN_BASE || base > MAX_BASE) return null;
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const match = /^([+-]?)([0-9a-zA-Z]*)(?:\.([0-9a-zA-Z]*))?$/.exec(trimmed);
-  if (!match) return null;
-  const [, sign = '', intPart = '', fracPart = ''] = match;
-  if (!intPart && !fracPart) return null;
-  let value = 0;
-  for (const char of intPart) {
-    const d = digitValue(char);
-    if (d < 0 || d >= base) return null;
-    value = value * base + d;
-  }
-  let scale = 1 / base;
-  for (const char of fracPart) {
-    const d = digitValue(char);
-    if (d < 0 || d >= base) return null;
-    value += d * scale;
-    scale /= base;
-  }
-  return sign === '-' ? -value : value;
-}
-
-/**
- * Format a non-negative finite number in `base` with up to 12 fractional digits,
- * trimming trailing zeros. Returns null when base is out of range or value invalid.
- */
-export function formatInBase(value: number, base: number): string | null {
-  if (!Number.isInteger(base) || base < MIN_BASE || base > MAX_BASE) return null;
-  if (!Number.isFinite(value)) return null;
-  const sign = value < 0 || Object.is(value, -0) ? '-' : '';
-  const abs = Math.abs(value);
-  let intPart = Math.floor(abs);
-  let frac = abs - intPart;
-  const intDigits: string[] = [];
-  if (intPart === 0) {
-    intDigits.push('0');
-  }
-  while (intPart > 0) {
-    intDigits.unshift(digitChar(intPart % base));
-    intPart = Math.floor(intPart / base);
-  }
-  const fracDigits: string[] = [];
-  const maxFracDigits = 12;
-  while (frac > 0 && fracDigits.length < maxFracDigits) {
-    frac *= base;
-    let digit = Math.floor(frac);
-    if (digit >= base) digit = base - 1;
-    fracDigits.push(digitChar(digit));
-    frac -= digit;
-    if (frac > 1 - 1e-12) {
-      // rounding carry to the last written digit
-      frac = 0;
+function parseCompound(chunk: string): ParsedSimple[] | null {
+  const out: ParsedSimple[] = [];
+  let i = 0;
+  let typeSeen = false;
+  while (i < chunk.length) {
+    const ch = chunk[i] ?? '';
+    if (ch === '#') {
+      const name = /^#([\w-]+|\\.)/.exec(chunk.slice(i));
+      if (!name) return null;
+      out.push({ kind: 'id', text: chunk.slice(i, i + name[0].length) });
+      i += name[0].length;
+    } else if (ch === '.') {
+      const name = /^\.([\w-\\]+)/.exec(chunk.slice(i));
+      if (!name) return null;
+      out.push({ kind: 'class', text: chunk.slice(i, i + name[0].length) });
+      i += name[0].length;
+    } else if (ch === '[') {
+      const close = findClosing(chunk, i, '[', ']');
+      if (close === -1) return null;
+      out.push({ kind: 'attribute', text: chunk.slice(i, close + 1) });
+      i = close + 1;
+    } else if (ch === ':') {
+      if (chunk[i + 1] === ':') {
+        const name = /^(?:\*|[\w-]+)/.exec(chunk.slice(i + 2));
+        if (!name) return null;
+        let end = i + 2 + name[0].length;
+        // Functional pseudo-element like ::slotted(...) remains in the element column.
+        if (chunk[end] === '(') {
+          const close = findClosing(chunk, end, '(', ')');
+          if (close === -1) return null;
+          end = close + 1;
+        }
+        out.push({ kind: 'pseudo-element', text: chunk.slice(i, end) });
+        i = end;
+      } else {
+        const body = readPseudoClass(chunk, i);
+        if (!body) return null;
+        if (isFunctionalLogical(body.text)) {
+          const nameMatch = /^:([\w-]+)\(/.exec(body.text);
+          const fn = nameMatch?.[1] ?? '';
+          const innerSel = body.text.slice(body.text.indexOf('(') + 1, -1);
+          if (fn === 'where') {
+            // :where() always contributes zero specificity.
+          } else {
+            // :is(), :not() and :has() take the most specific argument.
+            const best = mostSpecificArgument(innerSel as string);
+            if (best === null) return null;
+            out.push(...best);
+          }
+        } else {
+          out.push({ kind: 'pseudo-class', text: body.text });
+        }
+        i = body.end;
+      }
+    } else if (/[A-Za-z_*|]/.test(ch) && !typeSeen) {
+      const name = /^(\*|-?[_A-Za-z][\w-]*|\|)/.exec(chunk.slice(i));
+      if (!name) return null;
+      typeSeen = true;
+      out.push({ kind: 'element', text: name[0] });
+      i += name[0].length;
+    } else if (ch === '*') {
+      // Universal selector after a type: skip silently, zero specificity.
+      i += 1;
+    } else {
+      // Unknown character: tolerate by skipping it (never crash).
+      i += 1;
     }
   }
-  // trim trailing zeros
-  while (fracDigits.length > 0 && fracDigits[fracDigits.length - 1] === '0') {
-    fracDigits.pop();
-  }
-  const body = fracDigits.length > 0 ? `${intDigits.join('')}.${fracDigits.join('')}` : intDigits.join('');
-  return sign + body;
+  return out;
 }
 
-/** Parse an integer in the given base; returns null on invalid input or fractions. */
-export function parseIntegerInBase(input: string, base: number): number | null {
-  if (!Number.isInteger(base) || base < MIN_BASE || base > MAX_BASE) return null;
-  const trimmed = input.trim();
-  if (!trimmed || trimmed.includes('.')) return null;
-  const match = /^([+-]?)([0-9a-zA-Z]+)$/.exec(trimmed);
-  if (!match) return null;
-  const [, sign = '', digits = ''] = match;
-  let value = 0;
-  for (const char of digits) {
-    const d = digitValue(char);
-    if (d < 0 || d >= base) return null;
-    value = value * base + d;
+function findClosing(text: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === open) depth++;
+    else if (text[i] === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
   }
-  return sign === '-' ? -value : value;
+  return -1;
+}
+
+/** Read a pseudo-class token starting at `start` (after a single colon). */
+function readPseudoClass(chunk: string, start: number): { text: string; end: number } | null {
+  const name = /^([\w-]+)/.exec(chunk.slice(start + 1));
+  if (!name) return null;
+  let end = start + 1 + name[0].length;
+  if (chunk[end] === '(') {
+    const close = findClosing(chunk, end, '(', ')');
+    if (close === -1) return null;
+    end = close + 1;
+  }
+  return { text: chunk.slice(start, end), end };
+}
+
+function isFunctionalLogical(text: string): boolean {
+  const m = /^:([\w-]+)\(/.exec(text);
+  if (!m) return false;
+  return ['is', 'where', 'not', 'has'].includes(m[1] as string);
+}
+
+/** Split a selector list at top-level commas (respecting brackets/parens). */
+export function splitTopLevel(input: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of input) {
+    if (ch === '[' || ch === '(') depth++;
+    else if (ch === ']' || ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts.map((p) => p.trim());
 }
 
 /**
- * Unsigned magnitude bits of an integer (no sign bit), at least one digit.
- * For negative numbers this is the magnitude, not two's complement.
+ * Score a compound argument of :is()/:not()/:has() and return its simples,
+ * or null when the argument is empty/malformed beyond repair.
  */
-export function toUnsignedBits(value: number, bitLength: number): string {
-  let magnitude = Math.abs(Math.trunc(value));
-  const width = Math.max(1, Math.trunc(bitLength));
-  const bits: string[] = [];
-  while (magnitude > 0) {
-    bits.unshift(magnitude % 2 === 1 ? '1' : '0');
-    magnitude = Math.floor(magnitude / 2);
+function mostSpecificArgument(innerSel: string): ParsedSimple[] | null {
+  const args = splitTopLevel(innerSel).filter((a) => a.trim());
+  if (args.length === 0) return null;
+  let best: { simples: ParsedSimple[]; total: number } | null = null;
+  for (const arg of args) {
+    const { items, valid } = tokenize(arg);
+    if (!valid) continue;
+    let a = 0;
+    let b = 0;
+    let c = 0;
+    const simples: ParsedSimple[] = [];
+    for (const item of items) {
+      if (item.kind === 'combinator') continue;
+      const s = item as ParsedSimple;
+      simples.push(s);
+      if (s.kind === 'id') a++;
+      else if (s.kind === 'class' || s.kind === 'attribute' || s.kind === 'pseudo-class') b++;
+      else c++;
+    }
+    if (simples.length === 0) continue;
+    const total = a * 10000 + b * 100 + c;
+    if (best === null || total > best.total) best = { simples, total };
   }
-  while (bits.length < width) bits.unshift('0');
-  // truncate to width if the magnitude needs more bits than requested
-  if (bits.length > width) return bits.slice(bits.length - width).join('');
-  return bits.join('');
+  if (best === null) return null;
+  return best.simples.map((s) => mapInnerSimple(s));
 }
 
-/** Two's complement representation of an integer at the given bit length. */
-export function toTwosComplement(value: number, bitLength: number): string {
-  const width = Math.max(1, Math.trunc(bitLength));
-  const mod = 2 ** width;
-  let wrapped = Math.trunc(value) % mod;
-  if (wrapped < 0) wrapped += mod;
-  let bits = '';
-  for (let i = width - 1; i >= 0; i--) {
-    bits = ((wrapped >> i) & 1) === 1 ? bits + '1' : bits + '0';
+/**
+ * Map simples from inside :is()/:not()/:has() into their counting kinds:
+ * nested pseudo-elements count in the element column, everything class-like in b.
+ */
+function mapInnerSimple(s: ParsedSimple): ParsedSimple {
+  if (s.kind === 'id' || s.kind === 'class' || s.kind === 'attribute' || s.kind === 'pseudo-class') return s;
+  return s; // element / pseudo-element keep their kind
+}
+
+// ---------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------
+
+/**
+ * Score a single selector (complex, no commas) into an (a, b, c) tuple.
+ * Malformed selectors are tolerated: they populate `error` but never throw.
+ */
+export function scoreSelector(raw: string): SelectorScore {
+  const trimmedRaw = raw.trim();
+  const important = /!\s*important\s*$/i.test(trimmedRaw);
+  const body = trimmedRaw.replace(/\s*!\s*important\s*$/i, '').trim();
+  const base: SelectorScore = {
+    raw: trimmedRaw,
+    error: null,
+    tuple: { a: 0, b: 0, c: 0 },
+    total: 0,
+    important,
+    breakdown: { ids: [], classes: [], elements: [] },
+  };
+  if (!body) {
+    return { ...base, error: 'Empty selector' };
   }
-  return bits;
-}
-
-/** Group a binary string from the right with a space every `groupSize` bits. */
-export function groupBits(bits: string, groupSize: number): string {
-  if (groupSize <= 0) return bits;
-  const groups: string[] = [];
-  for (let end = bits.length; end > 0; end -= groupSize) {
-    groups.unshift(bits.slice(Math.max(0, end - groupSize), end));
+  const { items, valid } = tokenize(body);
+  let a = 0;
+  let b = 0;
+  let c = 0;
+  const ids: string[] = [];
+  const classes: string[] = [];
+  const elements: string[] = [];
+  for (const item of items) {
+    if (item.kind === 'combinator') continue;
+    const simple = item as ParsedSimple;
+    if (simple.text === '*') continue;
+    if (simple.kind === 'id') {
+      a++;
+      ids.push(simple.text);
+    } else if (simple.kind === 'class' || simple.kind === 'attribute' || simple.kind === 'pseudo-class') {
+      b++;
+      classes.push(simple.text);
+    } else {
+      c++;
+      elements.push(simple.text);
+    }
   }
-  return groups.join(' ');
+  const tuple: SpecificityTuple = { a, b, c };
+  return {
+    ...base,
+    error: valid ? null : 'Malformed selector — best-effort scoring',
+    tuple,
+    total: toTotal(tuple),
+    breakdown: { ids, classes, elements },
+  };
 }
 
-function applyCase(text: string, digitCase: DigitCase): string {
-  return digitCase === 'upper' ? text.toUpperCase() : text.toLowerCase();
+function toTotal(t: SpecificityTuple): number {
+  return t.a * 10000 + t.b * 100 + t.c;
 }
 
-function formatBinary(bits: string, grouping: BitGrouping): string {
-  const size = grouping === 'nibble' ? 4 : grouping === 'byte' ? 8 : 0;
-  return groupBits(bits, size);
+/** Format a tuple like (1, 2, 0). */
+export function formatTuple(t: SpecificityTuple): string {
+  return `(${t.a}, ${t.b}, ${t.c})`;
 }
 
-function validationError(input: string, base: number): string {
-  if (!input.trim()) {
-    return `Enter a number in base ${base}`;
+/** Human-readable description of a tuple. */
+export function tupleToLabel(t: SpecificityTuple): string {
+  return `${t.a} IDs, ${t.b} classes/attrs/pseudo-classes, ${t.c} elements`;
+}
+
+/**
+ * Score the full cascade: every selector in the comma-separated list, plus the optional
+ * inline style attribute entry. Entries with !important rank above all others.
+ */
+export function scoreSelectorList(text: string, inlineStyleActive: boolean, inlineImportant: boolean): ScoredEntry[] {
+  const entries: ScoredEntry[] = [];
+  const selectors = splitTopLevel(text);
+  for (const s of selectors) {
+    if (!s.trim()) continue;
+    const score = scoreSelector(s);
+    entries.push({ kind: 'selector', label: s, important: score.important, score });
   }
-  return `"${input.trim()}" is not a valid base-${base} number. Valid digits: 0-${
-    base <= 10 ? String(base - 1) : `9 and ${DIGITS.slice(10, base).split('').join(', ')}`
-  }`;
-}
-
-/** Convert state.input (interpreted in state.inputBase) to every target base 2..36. */
-export function convertToAllBases(state: ToolState): BaseConversion[] {
-  const results: BaseConversion[] = [];
-  const value = parseInBase(state.input, state.inputBase);
-  for (let base = MIN_BASE; base <= MAX_BASE; base++) {
-    if (base === state.inputBase) {
-      const raw = state.input.trim();
-      results.push({
-        value: raw,
-        formatted: applyCase(raw, state.digitCase),
+  if (inlineStyleActive) {
+    entries.push({
+      kind: 'inline',
+      label: INLINE_STYLE_LABEL,
+      important: inlineImportant,
+      score: {
+        raw: INLINE_STYLE_LABEL,
         error: null,
-      });
-      continue;
-    }
-    if (value === null) {
-      results.push({ value: '', formatted: '', error: validationError(state.input, state.inputBase) });
-      continue;
-    }
-    const converted = formatInBase(value, base);
-    if (converted === null) {
-      results.push({ value: '', formatted: '', error: `Cannot represent input in base ${base}` });
-      continue;
-    }
-    const formatted = applyCase(
-      base === 2 ? formattedBinaryOf(value, state) : converted,
-      state.digitCase
-    );
-    results.push({ value: base === 2 ? converted : formatted, formatted, error: null });
+        tuple: { a: 1, b: 0, c: 0 },
+        total: 10000,
+        important: inlineImportant,
+        breakdown: { ids: [], classes: [], elements: [] },
+      },
+    });
   }
-  return results;
+  return entries.sort((x, y) => {
+    if (x.important !== y.important) return x.important ? -1 : 1;
+    return y.score.total - x.score.total;
+  });
 }
 
-function formattedBinaryOf(value: number, state: ToolState): string {
-  const converted = formatInBase(value, 2) ?? '0';
-  const parts = converted.split('.');
-  const intPart = parts[0] ?? converted;
-  const fracPart = parts.length > 1 ? (parts[1] ?? '') : '';
-  const groupedInt = formatBinary(intPart, state.grouping);
-  return fracPart ? `${groupedInt}.${fracPart}` : groupedInt;
+/** Winner of a cascade: important entries first, otherwise highest total. */
+export function findWinner(entries: ScoredEntry[]): ScoredEntry | null {
+  if (entries.length === 0) return null;
+  const first = entries[0];
+  return first ?? null;
 }
 
-/** Bit length needed to represent the integer magnitude unsigned. */
-export function requiredBitLength(value: number): number {
-  const magnitude = Math.abs(Math.trunc(value));
-  let bits = 1;
-  while (magnitude >= 2 ** bits && bits < 1024) bits++;
-  return bits;
+/** Compare two selectors; flags which wins (returns 'tie' on equal specificity). */
+export function compareSelectors(
+  a: string,
+  b: string
+): { scoreA: SelectorScore; scoreB: SelectorScore; winner: 'a' | 'b' | 'tie' } {
+  const scoreA = scoreSelector(a);
+  const scoreB = scoreSelector(b);
+  let winner: 'a' | 'b' | 'tie';
+  if (scoreA.important !== scoreB.important) {
+    winner = scoreA.important ? 'a' : 'b';
+  } else {
+    winner = scoreA.total === scoreB.total ? 'tie' : scoreA.total > scoreB.total ? 'a' : 'b';
+  }
+  return { scoreA, scoreB, winner };
 }
 
-/** Two's complement info string for the state input, or null when not applicable. */
-export function twosComplementInfo(state: ToolState): string | null {
-  const value = parseIntegerInBase(state.input, state.inputBase);
-  if (value === null) return null;
-  const bits = toTwosComplement(value, state.bitLength);
-  return groupBits(bits, state.grouping === 'none' ? 0 : state.grouping === 'nibble' ? 4 : 8);
+/**
+ * Cascade tie-breaking explanation: when two candidates have equal specificity, the one
+ * appearing later in source order wins.
+ */
+export function tieBreakerNote(): string {
+  return 'When specificity ties, the declaration that appears later in the stylesheet (or in a later-imported cascade layer) wins. Inline styles sit between !important rules and normal author rules.';
 }
 
-export const baseConverterTool: Tool<ToolState> = {
+/** Copyable text summary of scored entries. */
+export function copyEntriesAsText(entries: ScoredEntry[]): string {
+  const lines: string[] = ['Selector specificity — (a, b, c) = (IDs, classes, elements)', ''];
+  for (const e of entries) {
+    const prefix = e.important ? '[!important] ' : '';
+    lines.push(`${prefix}${e.label}`.padEnd(40) + formatTuple(e.score.tuple));
+  }
+  lines.push('', tieBreakerNote());
+  return lines.join('\n');
+}
+
+/** Copyable markdown table of scored entries. */
+export function copyEntriesAsMarkdown(entries: ScoredEntry[]): string {
+  const lines = [
+    '| Specificity | Selector | IDs | Classes | Elements |',
+    '| --- | --- | --- | --- | --- |',
+  ];
+  for (const e of entries) {
+    lines.push(
+      `| \`${e.important ? '!important ' : ''}${formatTuple(e.score.tuple)}\` | \`${e.label.replace(/\|/g, '\\|')}\` | ${
+        e.score.tuple.a
+      } | ${e.score.tuple.b} | ${e.score.tuple.c} |`
+    );
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------
+// Tool definition
+// ---------------------------------------------------------------
+
+export const cssSpecificityTool: Tool<ToolState> = {
   id: toolConfig.id,
   name: toolConfig.name,
   version: toolConfig.version,
@@ -234,34 +441,19 @@ export const baseConverterTool: Tool<ToolState> = {
   serialize: (state) => JSON.stringify(state),
   deserialize: (data): DeserializeResult<ToolState> => {
     if (typeof data !== 'object' || data === null) {
-      return { success: false, error: 'Invalid data format: expected base converter state object' };
+      return { success: false, error: 'Invalid data format: expected { selectorsText: string, ... }' };
     }
     const v = data as Partial<ToolState>;
-    const inputOk = typeof v.input === 'string';
-    const baseOk = typeof v.inputBase === 'number' && Number.isInteger(v.inputBase) && v.inputBase >= MIN_BASE && v.inputBase <= MAX_BASE;
-    if (!inputOk || !baseOk) {
-      return {
-        success: false,
-        error: 'Invalid data format: expected { input: string, inputBase: number (2-36), ... }',
-      };
-    }
-    const digitCase: DigitCase = v.digitCase === 'upper' ? 'upper' : 'lower';
-    const grouping: BitGrouping =
-      v.grouping === 'nibble' || v.grouping === 'byte' || v.grouping === 'none' ? v.grouping : 'none';
-    const showTwosComplement = typeof v.showTwosComplement === 'boolean' ? v.showTwosComplement : true;
-    const bitLength =
-      typeof v.bitLength === 'number' && Number.isInteger(v.bitLength) && v.bitLength >= 1
-        ? v.bitLength
-        : DEFAULT_STATE.bitLength;
+    const selectorsText = typeof v.selectorsText === 'string' ? v.selectorsText : DEFAULT_STATE.selectorsText;
     return {
       success: true,
       data: {
-        input: v.input as string,
-        inputBase: v.inputBase as number,
-        digitCase,
-        grouping,
-        showTwosComplement,
-        bitLength,
+        selectorsText,
+        inlineStyleActive: typeof v.inlineStyleActive === 'boolean' ? v.inlineStyleActive : DEFAULT_STATE.inlineStyleActive,
+        inlineImportant: typeof v.inlineImportant === 'boolean' ? v.inlineImportant : DEFAULT_STATE.inlineImportant,
+        compareMode: typeof v.compareMode === 'boolean' ? v.compareMode : DEFAULT_STATE.compareMode,
+        compareA: typeof v.compareA === 'string' ? v.compareA : DEFAULT_STATE.compareA,
+        compareB: typeof v.compareB === 'string' ? v.compareB : DEFAULT_STATE.compareB,
       },
     };
   },

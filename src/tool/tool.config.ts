@@ -1,15 +1,15 @@
 import type { ToolConfig, ToolTheme } from '@itsjust/core';
 
 const toolTheme: ToolTheme = {
-  brand: 'Base Converter',
-  accent: '#10b981',
+  brand: 'CSS Specificity Calculator',
+  accent: '#6366f1',
 };
 
 export const toolConfig: ToolConfig = {
-  id: '1795194271',
-  name: 'Base Converter',
+  id: '1795239399',
+  name: 'CSS Specificity Calculator',
   description:
-    'Convert numbers between binary, octal, decimal, hexadecimal and arbitrary bases 2-36 with live input and bit grouping.',
+    'Calculate CSS selector specificity scores across comma-separated selectors, visualize which rule wins the cascade, and compare two selectors side by side.',
   version: '1.0.0',
   exportFormats: ['png', 'jpeg', 'webp', 'pdf'],
   features: {

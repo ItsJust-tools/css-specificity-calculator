@@ -12,11 +12,14 @@ import { cn } from '@/lib/utils';
 import { generateJsonLd, generateToolMetadata } from '@/lib/seo';
 import toolConfig from '@/tool/tool.config';
 import { getPublicSiteUrl, templateMetadata } from '@/tool/template-metadata';
-import { baseConverterTool } from '@/tool/tool-definition';
+import { cssSpecificityTool, scoreSelector } from '@/tool/tool-definition';
 import { ToolCanvas } from '@/tool/components/tool-canvas';
 import { ToolSidebar } from '@/tool/components/tool-sidebar';
 import { ToolToolbar } from '@/tool/components/tool-toolbar';
 import { DEFAULT_STATE } from '@/tool/types';
+
+type ToolStateForTest = ReturnType<typeof getDefaultState>;
+const getDefaultState = () => ({ ...DEFAULT_STATE });
 import type { ExporterLoader } from '@itsjust/core';
 
 vi.mock('next/link', () => ({
@@ -93,27 +96,27 @@ describe('app and seo', () => {
   it('covers tool definition and helper exports', async () => {
     expect(cn('a', undefined, 'b', false, null, 'c')).toBe('a b c');
     expect(getPublicSiteUrl()).toBe('http://localhost:3000');
-    expect(baseConverterTool.deserialize({ input: 'ff', inputBase: 16 })).toEqual({
+    expect(cssSpecificityTool.deserialize({ selectorsText: '.a' })).toEqual({
       success: true,
       data: {
-        input: 'ff',
-        inputBase: 16,
-        digitCase: 'lower',
-        grouping: 'none',
-        showTwosComplement: true,
-        bitLength: DEFAULT_STATE.bitLength,
+        selectorsText: '.a',
+        inlineStyleActive: false,
+        inlineImportant: false,
+        compareMode: false,
+        compareA: DEFAULT_STATE.compareA,
+        compareB: DEFAULT_STATE.compareB,
       },
     });
-    expect(baseConverterTool.deserialize({ nope: true })).toEqual({
+    expect(cssSpecificityTool.deserialize(undefined as unknown as object)).toEqual({
       success: false,
-      error: 'Invalid data format: expected { input: string, inputBase: number (2-36), ... }',
+      error: 'Invalid data format: expected { selectorsText: string, ... }',
     });
-    expect(baseConverterTool.serialize({ ...DEFAULT_STATE, input: '11' })).toContain('"input":"11"');
-    expect(baseConverterTool.deserialize({ input: '11', inputBase: 10, digitCase: 'upper', grouping: 'byte', bitLength: 8 })).toEqual({
+    expect(cssSpecificityTool.serialize({ ...DEFAULT_STATE, selectorsText: '#a' })).toContain('"selectorsText":"#a"');
+    expect(cssSpecificityTool.deserialize({ selectorsText: '.a', compareMode: true, inlineStyleActive: false })).toEqual({
       success: true,
-      data: { input: '11', inputBase: 10, digitCase: 'upper', grouping: 'byte', showTwosComplement: true, bitLength: 8 },
+      data: { selectorsText: '.a', inlineStyleActive: false, inlineImportant: false, compareMode: true, compareA: DEFAULT_STATE.compareA, compareB: DEFAULT_STATE.compareB },
     });
-    const exporters = (baseConverterTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
+    const exporters = (cssSpecificityTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
     expect(exporters).toHaveLength(4);
     const first = exporters[0];
     expect(first).toBeDefined();
@@ -127,14 +130,12 @@ describe('app and seo', () => {
     render(
       <>
         <ToolToolbar />
-        <ToolSidebar text="ff" fontSize={16} onFontSizeChange={() => {}} />
-        <ToolCanvas state={{ ...DEFAULT_STATE, input: '255' }} fontSize={16} />
+        <ToolCanvas state={{ ...DEFAULT_STATE, selectorsText: '#card', compareMode: false }} />
       </>
     );
 
     expect(screen.getByRole('link', { name: 'Open help page' })).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument(); // digit count for "ff"
-    expect(screen.getByRole('application', { name: 'Base converter canvas' })).toBeInTheDocument();
-    expect(screen.getByTestId('base-row-16')).toHaveTextContent('ff');
+    expect(screen.getByRole('application', { name: 'CSS specificity calculator canvas' })).toBeInTheDocument();
+    expect(screen.getByTestId('ranking-table')).toHaveTextContent('#card');
   });
 });

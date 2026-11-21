@@ -18,9 +18,8 @@ import {
   ToolToolbar,
   ToolSidebar,
 } from '@/tool';
-import { baseConverterTool as baseConverterToolDef } from '@/tool/tool-definition';
-import type { ToolState } from '@/tool/types';
-import { DEFAULT_STATE } from '@/tool/types';
+import { cssSpecificityTool as toolDef } from '@/tool/tool-definition';
+import { DEFAULT_STATE, type ToolState } from '@/tool/types';
 
 const DEFAULT_FONT_SIZE = 16;
 const MIN_FONT_SIZE = 8;
@@ -35,13 +34,13 @@ export default function ToolClient() {
     StatusBar?: ComponentType<{ children?: ReactNode }>;
   };
   const canvasRef = useRef<HTMLDivElement>(null);
-  const tool = useTool<ToolState>(baseConverterToolDef, canvasRef);
+  const tool = useTool<ToolState>(toolDef, canvasRef);
   const setToolData = tool.state.setData;
   const showToast = tool.toast;
   const [isSharing, setIsSharing] = useState(false);
   const hasLoadedSharedState = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(
-    () => typeof window !== 'undefined' && window.innerWidth > 768 && toolConfig.features.sidebar
+    () => typeof window !== 'undefined' && window.innerWidth > 768 && Boolean(toolConfig.features.sidebar)
   );
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
 
@@ -63,6 +62,7 @@ export default function ToolClient() {
     setFontSize((prev) => Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, prev + delta)));
   }, []);
 
+  // Live URL state sharing: hydrate from ?state= on first load.
   useEffect(() => {
     if (hasLoadedSharedState.current) return;
     hasLoadedSharedState.current = true;
@@ -73,7 +73,7 @@ export default function ToolClient() {
       const serialized = decompressFromEncodedURIComponent(encodedState);
       if (!serialized) throw new Error('Invalid shared URL');
       const parsed: unknown = JSON.parse(serialized);
-      const deserialized = baseConverterToolDef.deserialize(parsed);
+      const deserialized = toolDef.deserialize(parsed);
       if (!deserialized.success) throw new Error(deserialized.error);
       setToolData(deserialized.data);
       showToast('Loaded state from shared URL', 'success');
@@ -83,10 +83,18 @@ export default function ToolClient() {
     }
   }, [setToolData, showToast]);
 
+  // Keep the URL in sync with the current selectors so the link can be pasted directly.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('state', compressToEncodedURIComponent(toolDef.serialize(state)));
+    url.searchParams.set('tool', toolConfig.id);
+    window.history.replaceState(null, '', url.toString());
+  }, [state]);
+
   const handleShare = useCallback(async () => {
     setIsSharing(true);
     try {
-      const serialized = baseConverterToolDef.serialize(state);
+      const serialized = toolDef.serialize(state);
       const encodedState = compressToEncodedURIComponent(serialized);
       if (!encodedState) throw new Error('Failed to encode state for URL');
       const url = new URL(window.location.href);
@@ -115,7 +123,7 @@ export default function ToolClient() {
   }, [showToast, state, title]);
 
   const handleClear = useCallback(() => {
-    setToolData(() => ({ ...DEFAULT_STATE, input: '' }));
+    setToolData(() => ({ ...DEFAULT_STATE, selectorsText: '' }));
   }, [setToolData]);
 
   const toolbarContent = (
@@ -133,14 +141,13 @@ export default function ToolClient() {
   );
 
   const sidebarContent = (
-    <ToolSidebar text={state.input} fontSize={fontSize} onFontSizeChange={handleFontSizeChange} />
+    <ToolSidebar state={state} onStateChange={handleStateChange} />
   );
 
   const canvasContent = (
     <ToolCanvas
       canvasRef={canvasRef}
       state={state}
-      fontSize={fontSize}
       onStateChange={handleStateChange}
       onClear={handleClear}
     />
@@ -163,7 +170,6 @@ export default function ToolClient() {
         )}
       </span>
       <span className="status-slot status-slot-font-size">{fontSize}px</span>
-      <span className="status-slot">Input base: {state.inputBase}</span>
       <span className="status-slot status-slot-tool-version">Tool v{toolConfig.version}</span>
       <span className="status-slot status-slot-template-version">
         Template v{templateBaseVersion}
@@ -212,7 +218,6 @@ export default function ToolClient() {
                   <SidebarSection>{sidebarContent}</SidebarSection>
                   <CanvasSection>{canvasContent}</CanvasSection>
                 </BodySection>
-                <StatusBarSection>{statusBarContent}</StatusBarSection>
               </>
             );
           })()

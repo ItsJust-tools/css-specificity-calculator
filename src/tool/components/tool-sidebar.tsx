@@ -14,10 +14,5 @@ export function ToolSidebar({ state, onStateChange, onFontSizeChange }: ToolSide
   if (!state) {
     return <div className="tool-sidebar" data-testid="tool-sidebar-empty" />;
   }
-  return (
-    <Canvas
-      state={state}
-      onChange={(next: ToolState) => onStateChange?.(() => next)}
-    />
-  );
+  return <Canvas state={state} onChange={(next: ToolState) => onStateChange?.(() => next)} />;
 }

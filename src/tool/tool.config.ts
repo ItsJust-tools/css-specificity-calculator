@@ -1,9 +1,4 @@
-import type { ToolConfig, ToolTheme } from '@itsjust/core';
-
-const toolTheme: ToolTheme = {
-  brand: 'CSS Specificity Calculator',
-  accent: '#6366f1',
-};
+import type { ToolConfig } from '@itsjust/core';
 
 export const toolConfig: ToolConfig = {
   id: '1795239399',
@@ -20,7 +15,13 @@ export const toolConfig: ToolConfig = {
     statusBar: true,
     darkMode: true,
   },
-  theme: toolTheme,
+  theme: {
+    accent: '#6366f1',
+    accentHover: '#4f46e5',
+    accentSubtle: 'rgba(99, 102, 241, 0.08)',
+    brand: 'CSS Specificity Calculator',
+    icon: '\u{1F3AF}',
+  },
 };
 
 export default toolConfig;

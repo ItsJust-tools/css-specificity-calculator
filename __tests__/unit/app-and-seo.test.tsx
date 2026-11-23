@@ -111,12 +111,28 @@ describe('app and seo', () => {
       success: false,
       error: 'Invalid data format: expected { selectorsText: string, ... }',
     });
-    expect(cssSpecificityTool.serialize({ ...DEFAULT_STATE, selectorsText: '#a' })).toContain('"selectorsText":"#a"');
-    expect(cssSpecificityTool.deserialize({ selectorsText: '.a', compareMode: true, inlineStyleActive: false })).toEqual({
+    expect(cssSpecificityTool.serialize({ ...DEFAULT_STATE, selectorsText: '#a' })).toContain(
+      '"selectorsText":"#a"'
+    );
+    expect(
+      cssSpecificityTool.deserialize({
+        selectorsText: '.a',
+        compareMode: true,
+        inlineStyleActive: false,
+      })
+    ).toEqual({
       success: true,
-      data: { selectorsText: '.a', inlineStyleActive: false, inlineImportant: false, compareMode: true, compareA: DEFAULT_STATE.compareA, compareB: DEFAULT_STATE.compareB },
+      data: {
+        selectorsText: '.a',
+        inlineStyleActive: false,
+        inlineImportant: false,
+        compareMode: true,
+        compareA: DEFAULT_STATE.compareA,
+        compareB: DEFAULT_STATE.compareB,
+      },
     });
-    const exporters = (cssSpecificityTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
+    const exporters =
+      (cssSpecificityTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
     expect(exporters).toHaveLength(4);
     const first = exporters[0];
     expect(first).toBeDefined();
@@ -135,7 +151,9 @@ describe('app and seo', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Open help page' })).toBeInTheDocument();
-    expect(screen.getByRole('application', { name: 'CSS specificity calculator canvas' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('application', { name: 'CSS specificity calculator canvas' })
+    ).toBeInTheDocument();
     expect(screen.getByTestId('ranking-table')).toHaveTextContent('#card');
   });
 });

@@ -20,12 +20,7 @@ const COL_C = 'Elements / pseudo-elements (c)';
 
 export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
   const entries = useMemo(
-    () =>
-      scoreSelectorList(
-        state.selectorsText,
-        state.inlineStyleActive,
-        state.inlineImportant
-      ),
+    () => scoreSelectorList(state.selectorsText, state.inlineStyleActive, state.inlineImportant),
     [state.selectorsText, state.inlineStyleActive, state.inlineImportant]
   );
   const winner = entries[0] ?? null;
@@ -37,24 +32,20 @@ export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
 
   const update = (patch: Partial<ToolState>) => onChange({ ...state, ...patch });
 
-  const copy = useCallback(
-    async (text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        /* clipboard unavailable */
-      }
-    },
-    []
-  );
+  const copy = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, []);
 
   const copyText = useCallback(
     () =>
       copy(
         entries
           .map(
-            (e) =>
-              `${e.important ? '!important ' : ''}${e.label} → ${formatTuple(e.score.tuple)}`
+            (e) => `${e.important ? '!important ' : ''}${e.label} → ${formatTuple(e.score.tuple)}`
           )
           .join('\n')
       ),
@@ -77,10 +68,7 @@ export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
   );
 
   return (
-    <div
-      className="p-4 space-y-4 overflow-y-auto h-full"
-      data-testid="specificity-canvas"
-    >
+    <div className="p-4 space-y-4 overflow-y-auto h-full" data-testid="specificity-canvas">
       <div className="flex flex-col gap-2">
         <label
           htmlFor="selectors-input"
@@ -105,7 +93,7 @@ export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
             checked={state.inlineStyleActive}
             onChange={(e) => update({ inlineStyleActive: e.target.checked })}
           />
-          Inline <code>style="…"</code> participates
+          Inline <code>style=&quot;…&quot;</code> participates
         </label>
         <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
           <input
@@ -157,7 +145,9 @@ export const Canvas: React.FC<CanvasProps> = ({ state, onChange }) => {
               >
                 <td className="px-3 py-2 text-gray-500">{index + 1}</td>
                 <td className="px-3 py-2 font-mono break-all max-w-xs">
-                  {entry.important && <span className="mr-1 text-red-600 dark:text-red-400">!important</span>}
+                  {entry.important && (
+                    <span className="mr-1 text-red-600 dark:text-red-400">!important</span>
+                  )}
                   {entry.label}
                   {entry.score.error && (
                     <span role="alert" className="ml-2 text-xs text-amber-600 dark:text-amber-400">

@@ -14,10 +14,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ state, onChange }) => {
   return (
     <div className="p-4 space-y-6 text-sm overflow-y-auto h-full" data-testid="specificity-sidebar">
       <div>
-        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">Inline style attribute</h3>
+        <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">
+          Inline style attribute
+        </h3>
         <label className="flex items-center justify-between gap-2 text-xs">
           <span className="font-medium text-gray-700 dark:text-gray-300">
-            Inline <code>style="…"</code> participates
+            Inline <code>style=&quot;…&quot;</code> participates
           </span>
           <input
             type="checkbox"
@@ -60,11 +62,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ state, onChange }) => {
       <div>
         <h3 className="mb-2 font-medium text-gray-900 dark:text-gray-100">How scoring works</h3>
         <ul className="list-disc space-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400">
-          <li>(a) IDs — <code>#id</code></li>
-          <li>(b) Classes, attributes, pseudo-classes — <code>.cls</code>, <code>[attr]</code>, <code>:hover</code></li>
-          <li>(c) Elements and pseudo-elements — <code>div</code>, <code>::before</code></li>
-          <li>Universal <code>*</code>, combinators and <code>:where()</code> count zero.</li>
-          <li><code>:is()</code>, <code>:not()</code> and <code>:has()</code> take the specificity of their most specific argument.</li>
+          <li>
+            (a) IDs — <code>#id</code>
+          </li>
+          <li>
+            (b) Classes, attributes, pseudo-classes — <code>.cls</code>, <code>[attr]</code>,{' '}
+            <code>:hover</code>
+          </li>
+          <li>
+            (c) Elements and pseudo-elements — <code>div</code>, <code>::before</code>
+          </li>
+          <li>
+            Universal <code>*</code>, combinators and <code>:where()</code> count zero.
+          </li>
+          <li>
+            <code>:is()</code>, <code>:not()</code> and <code>:has()</code> take the specificity of
+            their most specific argument.
+          </li>
         </ul>
       </div>
 

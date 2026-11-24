@@ -264,7 +264,8 @@ function mostSpecificArgument(innerSel: string): ParsedSimple[] | null {
  * nested pseudo-elements count in the element column, everything class-like in b.
  */
 function mapInnerSimple(s: ParsedSimple): ParsedSimple {
-  if (s.kind === 'id' || s.kind === 'class' || s.kind === 'attribute' || s.kind === 'pseudo-class') return s;
+  if (s.kind === 'id' || s.kind === 'class' || s.kind === 'attribute' || s.kind === 'pseudo-class')
+    return s;
   return s; // element / pseudo-element keep their kind
 }
 
@@ -305,7 +306,11 @@ export function scoreSelector(raw: string): SelectorScore {
     if (simple.kind === 'id') {
       a++;
       ids.push(simple.text);
-    } else if (simple.kind === 'class' || simple.kind === 'attribute' || simple.kind === 'pseudo-class') {
+    } else if (
+      simple.kind === 'class' ||
+      simple.kind === 'attribute' ||
+      simple.kind === 'pseudo-class'
+    ) {
       b++;
       classes.push(simple.text);
     } else {
@@ -341,7 +346,11 @@ export function tupleToLabel(t: SpecificityTuple): string {
  * Score the full cascade: every selector in the comma-separated list, plus the optional
  * inline style attribute entry. Entries with !important rank above all others.
  */
-export function scoreSelectorList(text: string, inlineStyleActive: boolean, inlineImportant: boolean): ScoredEntry[] {
+export function scoreSelectorList(
+  text: string,
+  inlineStyleActive: boolean,
+  inlineImportant: boolean
+): ScoredEntry[] {
   const entries: ScoredEntry[] = [];
   const selectors = splitTopLevel(text);
   for (const s of selectors) {
@@ -441,16 +450,26 @@ export const cssSpecificityTool: Tool<ToolState> = {
   serialize: (state) => JSON.stringify(state),
   deserialize: (data): DeserializeResult<ToolState> => {
     if (typeof data !== 'object' || data === null) {
-      return { success: false, error: 'Invalid data format: expected { selectorsText: string, ... }' };
+      return {
+        success: false,
+        error: 'Invalid data format: expected { selectorsText: string, ... }',
+      };
     }
     const v = data as Partial<ToolState>;
-    const selectorsText = typeof v.selectorsText === 'string' ? v.selectorsText : DEFAULT_STATE.selectorsText;
+    const selectorsText =
+      typeof v.selectorsText === 'string' ? v.selectorsText : DEFAULT_STATE.selectorsText;
     return {
       success: true,
       data: {
         selectorsText,
-        inlineStyleActive: typeof v.inlineStyleActive === 'boolean' ? v.inlineStyleActive : DEFAULT_STATE.inlineStyleActive,
-        inlineImportant: typeof v.inlineImportant === 'boolean' ? v.inlineImportant : DEFAULT_STATE.inlineImportant,
+        inlineStyleActive:
+          typeof v.inlineStyleActive === 'boolean'
+            ? v.inlineStyleActive
+            : DEFAULT_STATE.inlineStyleActive,
+        inlineImportant:
+          typeof v.inlineImportant === 'boolean'
+            ? v.inlineImportant
+            : DEFAULT_STATE.inlineImportant,
         compareMode: typeof v.compareMode === 'boolean' ? v.compareMode : DEFAULT_STATE.compareMode,
         compareA: typeof v.compareA === 'string' ? v.compareA : DEFAULT_STATE.compareA,
         compareB: typeof v.compareB === 'string' ? v.compareB : DEFAULT_STATE.compareB,

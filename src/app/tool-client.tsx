@@ -11,13 +11,7 @@ import {
 } from 'react';
 import { ToolShell, useTool, ImportExport } from '@itsjust/core';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import {
-  toolConfig,
-  templateBaseVersion,
-  ToolCanvas,
-  ToolToolbar,
-  ToolSidebar,
-} from '@/tool';
+import { toolConfig, templateBaseVersion, ToolCanvas, ToolToolbar, ToolSidebar } from '@/tool';
 import { cssSpecificityTool as toolDef } from '@/tool/tool-definition';
 import { DEFAULT_STATE, type ToolState } from '@/tool/types';
 
@@ -40,7 +34,10 @@ export default function ToolClient() {
   const [isSharing, setIsSharing] = useState(false);
   const hasLoadedSharedState = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(
-    () => typeof window !== 'undefined' && window.innerWidth > 768 && Boolean(toolConfig.features.sidebar)
+    () =>
+      typeof window !== 'undefined' &&
+      window.innerWidth > 768 &&
+      Boolean(toolConfig.features.sidebar)
   );
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
 
@@ -140,9 +137,7 @@ export default function ToolClient() {
     </>
   );
 
-  const sidebarContent = (
-    <ToolSidebar state={state} onStateChange={handleStateChange} />
-  );
+  const sidebarContent = <ToolSidebar state={state} onStateChange={handleStateChange} />;
 
   const canvasContent = (
     <ToolCanvas

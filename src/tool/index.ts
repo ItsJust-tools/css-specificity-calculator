@@ -20,10 +20,4 @@ export { ToolSidebar } from './components/tool-sidebar';
 export { Canvas } from './components/Canvas';
 export { Sidebar } from './components/Sidebar';
 export { Toolbar } from './components/Toolbar';
-export type {
-  ToolState,
-  SelectorScore,
-  ScoredEntry,
-  SpecificityTuple,
-  EntryKind,
-} from './types';
+export type { ToolState, SelectorScore, ScoredEntry, SpecificityTuple, EntryKind } from './types';
